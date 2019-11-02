@@ -1,0 +1,58 @@
+---
+title: "Функции для рассчета коэффициента корреляции"
+author: 'Александра Долгих'
+date: "01 11 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Функция для рассчета коэффициента корреляции Пирсона
+
+```{r function}
+cor_fun <- function(x,method){
+  if (method=="pearson"){
+    first <- x[,1]
+    second <- x[,2]
+  } else if (method=="spearman"){
+    first <- rank(x[,1])
+    second <- rank(x[,2])
+  }
+  f_mean <- first - mean(first)
+  s_mean <- second - mean(second)
+  res <- sum(f_mean*s_mean)/sqrt(sum(f_mean**2)*sum(s_mean**2))
+  print(res)
+}
+```
+
+
+### Создадим два тестовых dataframe
+Первый на основе данных mtcars
+data(mtcars)
+Второй с повторяющимися значениями
+```{r test}
+for_t <- mtcars[3:4]
+a <- c(1,1,1,2,3)
+b <- a
+for_t1 <- data.frame(a,b)
+```
+Протестируем наши функции и пакетные для сравнения
+```{r test2}
+
+cor_fun(for_t, "pearson")
+cor_fun(for_t1, "pearson")
+
+cor.test(for_t[,1],for_t[,2])
+cor.test(for_t1[,1],for_t1[,2])
+
+cor_fun(for_t,"spearman")
+cor_fun(for_t1,"spearman")
+
+cor.test(for_t[,1],for_t[,2], method="spearman")
+cor.test(for_t1[,1],for_t1[,2],method="spearman")
+
+
+```
+
