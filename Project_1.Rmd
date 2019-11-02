@@ -1,0 +1,130 @@
+---
+title: "Project1"
+author: '----'
+date: "01 11 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Создание единой таблицы с данными
+
+```{r table}
+library(data.table)
+all.files <- list.files(path = "/home/alexadol/Загрузки/Data/",pattern = ".csv",full.names = T)
+l <- lapply(all.files, fread, sep=",")
+dt <- rbindlist(l)
+```
+
+Проверим, что число наблюдений равно *4177*:
+
+```{r nrow}
+nrow(dt)
+```
+
+### Проверка на корректность
+Поскольку все измеренные величины предполагают числовые значения, проверим, так ли это
+```{r na}
+dt_numeric <- sapply(dt, is.numeric)
+print(dt_numeric)
+```
+
+Видим, что в некоторых стобцах содержатся не только числовые значения. Чтобы с ними корректно работать стоит перевести их в NA:
+```{r apply, include=FALSE}
+dt <- apply(dt, 2, as.numeric)
+dt <- as.data.frame(dt)
+```
+
+В результате данного преобразования нечисловые значения преобразовались в NA. Еще можно исключить из таблицы значения, содержащие NA или заменить их, например, на среднее.
+1 вариант:
+```{r 1}
+dt_wo_na <- dt[complete.cases(dt),]
+```
+2 вариант:
+Переменную Sex переведем в фактор, чтобы для нее NA не заменялись на среднее, т.к. это не корректно
+```{r 2,include=FALSE}
+library(dplyr)
+dt$`Sex (1 – male, 2 – female, 3 – uvenil)`<-as.factor(dt$`Sex (1 – male, 2 – female, 3 – uvenil)`)
+dt <- dt %>% mutate_if(is.numeric, funs(ifelse(is.na(.), mean(.,na.rm=T), .)))
+```
+
+Дальше считаем среднее
+```{r}
+m<-dt %>% filter(`Sex (1 – male, 2 – female, 3 – uvenil)`!='NA') %>% group_by(`Sex (1 – male, 2 – female, 3 – uvenil)`) %>% summarise(mean(Length))
+s<-dt %>% filter(`Sex (1 – male, 2 – female, 3 – uvenil)`!='NA') %>% group_by(`Sex (1 – male, 2 – female, 3 – uvenil)`) %>% summarise(sd(Length))
+print(m)
+print(s)
+
+```
+### Процент для Height<=0.165
+```{r procent}
+height165 <- dt%>% filter(Height <= 0.165)
+Height_percent <- nrow(height165)/nrow(dt)*100
+print(round(Height_percent,2))
+```
+### Значение переменной Length выше чем у 92%
+Для начала вычислим, сколько наблюдений составляют 92%
+```{r}
+0.92*4177
+```
+Теперь, найдем 3843 наблюдение в отсортированном векторе *Length*
+```{r}
+Length_sort <- sort(dt$Length)
+Length_sort[3843]
+```
+### Z-стандартизация переменной Length
+```{r}
+Length_z_scores <- (dt$Length - mean(dt$Length,na.rm=T))/sd(dt$Length)
+```
+### сравнение 5 и 15
+
+```{r ggplot2}
+library(ggplot2)
+Diameter_5 <- dt %>% filter(Rings==5) %>% select(Diameter)
+Diameter_15 <- dt %>% filter(Rings==15) %>% select(Diameter)
+length(Diameter_5$Diameter)
+length(Diameter_15$Diameter)
+```
+
+Видим, что объем не очень большой, поэтому перед применением параметрического теста проверим нормальность
+```{r}
+ggplot(Diameter_15,aes(x=Diameter_15[,1]))+geom_density()
+ggplot(Diameter_5,aes(x=Diameter_5[,1]))+geom_density()
+qqnorm(Diameter_15[,1])
+qqline(Diameter_15[,1])
+qqnorm(Diameter_5[,1])
+qqline(Diameter_5[,1])
+
+```
+Распределение значений близко к нормальному, делаем t-test
+```{r}
+f<- t.test(Diameter_15,Diameter_5)
+f$statistic
+f$p.value
+```
+Видим, что t-значение больше табличного, значит отвергаем нулевую гипотезу о равенстве средних и принимаем альтернативную, а значит между значениями диаметра у улиток с 15 и 5 кольцами есть разница
+
+### Про корреляцию между Diameter и Whole_weight
+
+Для того, чтобы проверить, есть ли зависимость между переменными, сделаем корреляционный анализ. Проверим распределение на нормальность
+```{r norm}
+ggplot(dt,aes(x=Diameter))+geom_density()
+ggplot(dt,aes(x=Whole_weight))+geom_density()
+qqnorm(dt$Diameter)
+qqline(dt$Diameter)
+qqnorm(dt$Whole_weight)
+qqline(dt$Whole_weight)
+
+```
+Распределение не очень близко к нормальному, делаем Спирмена
+```{r,include=FALSE}
+cor <- cor.test(dt$Diameter,dt$Whole_weight,method="spearman")
+```
+```{r cor}
+print(cor$estimate)
+print(cor$p.value)
+```
+
+
