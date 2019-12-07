@@ -1,0 +1,292 @@
+---
+title: "Project2_lm"
+author: "unknown"
+date: "07 12 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(car)
+library(gridExtra)
+```
+
+Открываем датасет Boston
+```{r cars}
+library(MASS)
+Boston <- MASS::Boston
+str(Boston)
+```
+
+Видим, что значения двух переменных - дискретны. Нам нужно провести **стандартизацию**, но стандартизации не подлежат дискретные переменные (chas,rad), а также не будем делать стандартизацию зависимой переменной, поэтому выделяем для scale соответствующие колонки.Перед этим предварительно переводим chas и rad в факторные. 
+
+## Построение полной модели
+
+```{r}
+Boston_scale <- Boston
+Boston_scale$chas <- as.factor(Boston_scale$chas)
+Boston_scale$rad <- as.factor(Boston_scale$rad)
+Boston_scale[,c(-4,-9,-14)]<- scale(Boston_scale[,c(-4,-9,-14)])
+
+```
+
+Внешне оценим наличие **корреляций** между предикторами.
+```{r}
+pairs(Boston_scale)
+```
+
+
+Между некоторыми предикторами она есть, значит дальше нам точно необходимо будет проводить проверку на мультиколлинеарность.
+
+Построим **полную линейную модель** для medv, учитывая все предикторы.
+```{r}
+bos_new <- lm(medv~lstat+black+ptratio+tax+rad+dis+age+rm+nox+chas+indus+zn+crim,data=Boston_scale)
+summary(bos_new)
+```
+
+Построим **график остатков**, от предсказанных значений, чтобы оценить  **линейности взаимосвязи** и **постоянство дисперсии**.
+```{r}
+bos_new_for <- data.frame(fortify(bos_new))
+gg_resid <- ggplot(data = bos_new_for, aes(x = .fitted, y = .stdresid)) + 
+  geom_point() + 
+  geom_hline(yintercept = 0) +
+  geom_smooth(method = "lm") +
+  geom_hline(yintercept = 2, color = "red") +
+  geom_hline(yintercept = -2, color = "red") +
+  ggtitle("График остатков для полной модели")
+gg_resid
+```
+
+Дисперсия остатков довольно постоянная, а вот с линейностью наблюдаем проблемы : в начале и в конце больше положительных значений, в середине - отрицательных.
+
+Также построим для данной модели **график расстояний Кука**, чтобы оценить наличие влиятельных наблюдений.
+```{r}
+ggplot(, aes(x = 1:nrow(bos_new_for), y = bos_new_for$.cooksd)) + 
+  geom_bar(stat = "identity") + 
+  geom_hline(yintercept = 2, color = "green2") + ggtitle("График расстояний Кука для полной модели")
+```
+
+Видим, что такие наблюдения есть.
+
+Для оценки нормальности остатков построим **QQ-Plot** 
+```{r}
+qqPlot(bos_new_for$.stdresid)
+```
+Наши максимальные значения слишком высоки для нормального распределения. В целом, диагностика модели показывает, что она плохая. Но график предсказанных значений мы все же построим.
+
+Для начала посмотрим на коэффициенты.
+```{r}
+ summary(bos_new)
+```
+
+Видим, что наибольший коэффициент у предиктора rad. 
+```{r}
+MyData <- data.frame(
+     rad = (Boston_scale$rad),
+     crim = mean(Boston_scale$crim),
+     zn = mean(Boston_scale$zn),
+     chas = Boston_scale$chas,
+     nox = mean(Boston_scale$nox),
+     rm = mean(Boston_scale$rm),
+     age = mean(Boston_scale$age),
+     dis = mean(Boston_scale$dis),
+     tax = mean(Boston_scale$tax),
+     ptratio = mean(Boston_scale$ptratio),
+     black = mean(Boston_scale$black),
+     lstat = mean(Boston_scale$lstat),
+     indus = mean(Boston_scale$indus))
+
+Predictions <- predict(bos_new, newdata = MyData,  interval = 'confidence')
+MyData <- data.frame(MyData, Predictions)
+
+Pl_predict <- ggplot(MyData, aes(x = rad, y = fit)) +
+  geom_ribbon(alpha = 0.2, aes(ymin = lwr, ymax = upr)) +
+  geom_line() + 
+  ggtitle("График предсказаний полной модели для предиктора rad")
+Pl_predict 
+```
+
+## Приступим к подбору улучшенной линейной модели
+
+```{r}
+vif(bos_new)
+bos_2 <- update(bos_new, .~. - rad) 
+```
+
+Видим, что наибольшим vif для модели bos_new обладает предиктор rad, убираем его.
+```{r}
+vif(bos_2)
+bos_3 <- update(bos_2, .~. - nox) 
+```
+
+По той же логике убираем nox
+```{r}
+vif(bos_3)
+bos_4 <- update(bos_3, .~. - dis) 
+```
+
+и dis
+```{r}
+vif(bos_4)
+bos_5 <- update(bos_4, .~. - indus) 
+```
+
+и indus
+```{r}
+vif(bos_5)
+bos_6 <- update(bos_5, .~. - lstat) 
+```
+
+lstat
+```{r}
+vif(bos_6)
+bos_7 <- update(bos_6, .~. - tax) 
+```
+tax
+
+```{r}
+vif(bos_7)
+```
+Теперь мы избавились от всех предикторов со значением vif больше 2. Скорее всего, мы выкинули слишком много, но потом мы еще проверим наличие неучтенных взаимосвязей для удаленных предикторов.
+
+А пока посмотрим график остатков.
+```{r}
+bos_7_for <- data.frame(fortify(bos_7))
+gg_resid<- ggplot(data = bos_7_for, aes(x = .fitted, y = .stdresid)) + 
+  geom_point() + 
+  geom_hline(yintercept = 0) +
+  geom_smooth(method = "lm") +
+  geom_hline(yintercept = 2, color = "red") +
+  geom_hline(yintercept = -2, color = "red") +
+  ggtitle("График остатков для модели bos_7")
+gg_resid
+```
+
+Удаление предикторов не привело к улучшению.
+
+Теперь проведем отбор значимых предикторов.
+```{r}
+drop1(bos_7, test = "F")
+bos_8 <- update(bos_7, .~. - zn) 
+drop1(bos_8, test = "F")
+
+```
+
+Незначащий предиктор только один - zn. Исключим его. И посмотрим на график остатков.
+```{r}
+bos_8_for <- data.frame(fortify(bos_8))
+gg_resid<- ggplot(data = bos_8_for, aes(x = .fitted, y = .stdresid)) + 
+  geom_point() + 
+  geom_hline(yintercept = 0) +
+  geom_smooth(method = "lm") +
+  geom_hline(yintercept = 2, color = "red") +
+  geom_hline(yintercept = -2, color = "red") +
+  ggtitle("График остатков для модели bos_8")
+gg_resid
+```
+
+У модели все равно много недостатков - нелинейность стала еще более выраженной. 
+```{r}
+res_1 <- gg_resid + aes(x = Boston_scale$rad)
+res_2 <- gg_resid + aes(x = Boston_scale$dis)
+res_3 <- gg_resid + aes(x = Boston_scale$nox)
+res_4 <- gg_resid + aes(x = Boston_scale$indus)
+res_5 <- gg_resid + aes(x = Boston_scale$lstat)
+res_6 <- gg_resid + aes(x = Boston_scale$tax)
+grid.arrange(res_1, res_2, res_3, res_4,res_5, res_6,nrow = 2)
+```
+
+Видим зависимость от переменных lstat и dis, вернем их. 
+```{r}
+bos_9 <- update(bos_8, .~. +lstat + dis) 
+drop1(bos_9, test = "F")
+
+```
+
+Если снова проверить значимость предикторов - два предиктора находятся совсем на пороге уровня значимости 0,05, так что уберем их тоже.
+```{r}
+bos_10 <- update(bos_9, .~.- age - crim) 
+drop1(bos_10, test = "F")
+```
+
+Построим график остатков, чтобы оценить линейность связи и дисперсию остатков.
+```{r}
+bos_10_for <- data.frame(fortify(bos_10))
+gg_resid<- ggplot(data = bos_10_for, aes(x = .fitted, y = .stdresid)) + 
+  geom_point() + 
+  geom_hline(yintercept = 0) +
+  geom_smooth(method = "lm") +
+  geom_hline(yintercept = 2, color = "red") +
+  geom_hline(yintercept = -2, color = "red")+
+  ggtitle("График остатков для исправленной модели")
+gg_resid
+```
+
+Все еще нелинейная связь, с дисперсией все нормально.
+
+Построим график расстояний Кука для оценки наличия влиятельных наблюдений
+
+```{r}
+ggplot(, aes(x = 1:nrow(bos_10_for), y = bos_new_for$.cooksd)) + 
+  geom_bar(stat = "identity") + 
+  geom_hline(yintercept = 2, color = "green2") + ggtitle("График расстояний Кука для исправленной модели")
+```
+```
+
+
+
+
+С помощью qqPlot проверим нормальность распределения остатков.
+```{r}
+library(car)
+qqPlot(bos_10_for$.stdresid)
+
+```
+
+Все равно не нормально. 
+
+```{r}
+summary(bos_10)
+```
+
+В итоге после отбора мы получили следующую модель. У нее много недостатков.Возможно, проблемы с нелинейностью связаны с тем, что существует какой-то неучтенный фактор или существует какой-то другой тип зависимости.
+
+**Medv = -0.02 + 0.11 * black - 0.21 * ptratio + 0.33 * rm + 0.29 * chas1 - 0.46 * lstat - 0.12 * dis**
+```{r}
+MyData <- data.frame(
+     lstat = seq(min(Boston_scale$lstat), max(Boston_scale$lstat), length.out = 100),
+     chas = as.factor(1),
+     rm = mean(Boston_scale$rm),
+     dis = mean(Boston_scale$dis),
+     ptratio = mean(Boston_scale$ptratio),
+     black = mean(Boston_scale$black),
+     lstat = mean(Boston_scale$lstat))
+
+Predictions <- predict(bos_10, newdata = MyData,  interval = 'confidence')
+MyData <- data.frame(MyData, Predictions)
+
+Pl_predict <- ggplot(MyData, aes(x = lstat, y = fit)) +
+  geom_ribbon(alpha = 0.2, aes(ymin = lwr, ymax = upr)) +
+  geom_line() + 
+  ggtitle("График предсказания для исправленной модели от предиктора lstat при chas = 1")
+Pl_predict 
+
+MyData <- data.frame(
+     lstat = seq(min(Boston_scale$lstat), max(Boston_scale$lstat), length.out = 100),
+     chas = as.factor(0),
+     rm = mean(Boston_scale$rm),
+     dis = mean(Boston_scale$dis),
+     ptratio = mean(Boston_scale$ptratio),
+     black = mean(Boston_scale$black),
+     lstat = mean(Boston_scale$lstat))
+
+Predictions <- predict(bos_10, newdata = MyData,  interval = 'confidence')
+MyData <- data.frame(MyData, Predictions)
+
+Pl_predict <- ggplot(MyData, aes(x = lstat, y = fit)) +
+  geom_ribbon(alpha = 0.2, aes(ymin = lwr, ymax = upr)) +
+  geom_line() + 
+  ggtitle("График предсказания для исправленной модели от предиктора lstat при chas = 0")
+Pl_predict 
+
